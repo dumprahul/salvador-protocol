@@ -76,4 +76,24 @@ contract ManifestLibTest is Test {
         }
         assertTrue(sawLp1 && sawLp2 && sawLp3, "all three overlapping LPs must be identified");
     }
+
+    /// @notice tickA/tickB may arrive in either order (the hook derives them from
+    /// sqrtPriceBefore/sqrtPriceAfter, whose relative order depends on swap direction).
+    function test_orderIndependent() public {
+        harness.recordPosition(LP1, -100, 100, 1_000e18);
+
+        ManifestLib.Exposure[] memory forward = harness.getExposedRanges(0, 300);
+        ManifestLib.Exposure[] memory reverse = harness.getExposedRanges(300, 0);
+
+        assertEq(forward.length, 1);
+        assertEq(reverse.length, 1);
+        assertEq(forward[0].lp, reverse[0].lp);
+    }
+
+    /// @notice A range entirely outside the crossed stretch is never returned.
+    function test_excludesNonOverlapping() public {
+        harness.recordPosition(LP_UNTOUCHED, 500, 600, 4_000e18);
+        ManifestLib.Exposure[] memory hits = harness.getExposedRanges(0, 300);
+        assertEq(hits.length, 0);
+    }
 }
