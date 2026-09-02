@@ -16,6 +16,7 @@ import {IGeneralAverageFund} from "./interfaces/IGeneralAverageFund.sol";
 ///
 /// @dev Same per-pool registry pattern as GeneralAverageFund, for the same reason: the doc's
 /// pseudocode declares a single immutable `hook` while keying storage by `PoolId`.
+/// @custom:security-contact See SECURITY.md
 contract SalvageAuction is ISalvageAuction {
     using SafeERC20 for IERC20;
 

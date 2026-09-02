@@ -31,6 +31,7 @@ import {ISalvageHook} from "./interfaces/ISalvageHook.sol";
 /// for the ordinary single-pool lane, and FleetSettlement.submitBundledBid for the bundled
 /// cross-pool lane — without the fund needing to know about FleetSettlement specifically. Callers
 /// are allowlisted per pool via `authorizedDepositors`.
+/// @custom:security-contact See SECURITY.md
 contract GeneralAverageFund is IGeneralAverageFund {
     using SafeERC20 for IERC20;
 

@@ -26,6 +26,7 @@ import {ISalvageHook} from "./interfaces/ISalvageHook.sol";
 /// deployed contracts) and routes the two trading lanes — salvage-auction and convoy-batch — into
 /// SalvageAuction / ConvoyBatch / GeneralAverageFund, the independently deployed satellite
 /// contracts that legitimately need their own security boundary.
+/// @custom:security-contact See SECURITY.md
 contract SalvageHook is BaseHook, ISalvageHook {
     using ManifestLib for ManifestLib.Storage;
     using LossMeterLib for LossMeterLib.Storage;

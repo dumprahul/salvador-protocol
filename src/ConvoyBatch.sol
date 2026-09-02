@@ -22,6 +22,7 @@ import {IConvoyBatch} from "./interfaces/IConvoyBatch.sol";
 /// a trade large enough to cross several ticks already produces a large single-step price move,
 /// so the classification bias from this shortcut is conservative (toward "not retail"), never the
 /// dangerous direction.
+/// @custom:security-contact See SECURITY.md
 contract ConvoyBatch is IConvoyBatch {
     using StateLibrary for IPoolManager;
 

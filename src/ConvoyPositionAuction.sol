@@ -12,6 +12,7 @@ import {IConvoyPositionAuction} from "./interfaces/IConvoyPositionAuction.sol";
 ///
 /// @dev Per-pool: one auction instance per pool, since fee-share sacrifice and protected slots are
 /// meaningful only within a single pool's economics.
+/// @custom:security-contact See SECURITY.md
 contract ConvoyPositionAuction is IConvoyPositionAuction {
     struct Bid {
         address lp;

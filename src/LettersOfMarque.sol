@@ -15,6 +15,7 @@ import {ILettersOfMarque} from "./interfaces/ILettersOfMarque.sol";
 /// @dev A single global registry, not per-pool: any registered hook may penalize or slash any LP,
 /// since JIT sniping is the same behavior regardless of which pool it targets. Hook registration is
 /// owner-gated for the same minimal-access-control reason as the other satellites.
+/// @custom:security-contact See SECURITY.md
 contract LettersOfMarque is ILettersOfMarque {
     using SafeERC20 for IERC20;
 

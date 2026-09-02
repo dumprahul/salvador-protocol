@@ -18,6 +18,7 @@ import {IGeneralAverageFund} from "./interfaces/IGeneralAverageFund.sol";
 /// pool's general average fund strictly in proportion to that pool's own, independently measured
 /// gap (`ISalvageHook.lastMeasuredGap`) — never a caller-supplied split, so no pool's hook has to
 /// trust the bidder's claim about how to divide it.
+/// @custom:security-contact See SECURITY.md
 contract FleetSettlement is IFleetSettlement {
     using SafeERC20 for IERC20;
 
