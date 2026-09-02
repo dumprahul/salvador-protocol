@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {PoolId} from "v4-core/types/PoolId.sol";
 import {ISalvageAuction} from "./interfaces/ISalvageAuction.sol";
+import {IVolatilityFeed} from "./interfaces/IVolatilityFeed.sol";
 import {IGeneralAverageFund} from "./interfaces/IGeneralAverageFund.sol";
 
 /// @title SalvageAuction
@@ -26,8 +27,17 @@ contract SalvageAuction is ISalvageAuction {
     mapping(PoolId => address) public hookForPool;
     mapping(PoolId => IERC20) public quoteTokenForPool;
 
+    IVolatilityFeed public immutable volatilityFeed;
     IGeneralAverageFund public immutable fund;
     address public immutable owner;
+
+    /// @notice Governance-capped bounds for the storm-scaled window, in blocks.
+    uint256 public constant MIN_WINDOW_BLOCKS = 1;
+    uint256 public constant MAX_WINDOW_BLOCKS = 6;
+    /// @notice Volatility (bps) below which the window sits at MIN_WINDOW_BLOCKS.
+    uint256 public constant LOW_VOL_THRESHOLD_BPS = 50;
+    /// @notice Volatility (bps) at or above which the window sits at MAX_WINDOW_BLOCKS.
+    uint256 public constant HIGH_VOL_THRESHOLD_BPS = 500;
 
     error NotOwner();
     error PoolAlreadyRegistered();
@@ -38,7 +48,8 @@ contract SalvageAuction is ISalvageAuction {
         _;
     }
 
-    constructor(IGeneralAverageFund _fund, address _owner) {
+    constructor(IVolatilityFeed _volatilityFeed, IGeneralAverageFund _fund, address _owner) {
+        volatilityFeed = _volatilityFeed;
         fund = _fund;
         owner = _owner;
     }
@@ -53,9 +64,30 @@ contract SalvageAuction is ISalvageAuction {
     /// @notice Submit or raise a bid for `poolId`'s currently open window.
     function submitBid(PoolId poolId, uint256 amount) external {
         if (hookForPool[poolId] == address(0)) revert PoolNotRegistered();
+
+        if (block.number >= windowStart[poolId] + windowLength(poolId)) {
+            // previous window has lapsed with no collection (or already collected) — open a fresh one
+            windowStart[poolId] = block.number;
+            delete winningBid[poolId];
+        }
+
         if (amount <= winningBid[poolId].amount) revert BidTooLow();
         winningBid[poolId] = Bid({bidder: msg.sender, amount: amount, collected: false});
         emit BidSubmitted(poolId, msg.sender, amount);
+    }
+
+    /// @notice Storm-scaled window length: widens under measured volatility so real competition
+    /// has time to form; stays tight in calm markets so ordinary traders aren't delayed
+    /// unnecessarily. Piecewise-linear between the governance-set low/high volatility thresholds.
+    function windowLength(PoolId poolId) public view returns (uint256 blocks) {
+        uint256 vol = volatilityFeed.recentVolatility(poolId);
+
+        if (vol <= LOW_VOL_THRESHOLD_BPS) return MIN_WINDOW_BLOCKS;
+        if (vol >= HIGH_VOL_THRESHOLD_BPS) return MAX_WINDOW_BLOCKS;
+
+        uint256 span = HIGH_VOL_THRESHOLD_BPS - LOW_VOL_THRESHOLD_BPS;
+        uint256 blockSpan = MAX_WINDOW_BLOCKS - MIN_WINDOW_BLOCKS;
+        return MIN_WINDOW_BLOCKS + ((vol - LOW_VOL_THRESHOLD_BPS) * blockSpan) / span;
     }
 
     function currentBid(PoolId poolId) external view returns (address winner, uint256 amount) {
