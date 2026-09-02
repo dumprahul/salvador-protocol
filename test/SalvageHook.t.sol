@@ -143,6 +143,7 @@ contract SalvageHookTest is Deployers {
         oracle.setPrice(1.05e18);
 
         uint256 bidAmount = 1 ether;
+        vm.prank(address(bidder));
         auction.submitBid(poolId, bidAmount);
 
         (address winner, uint256 amount) = auction.currentBid(poolId);
