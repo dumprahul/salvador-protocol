@@ -19,10 +19,11 @@ contract ConvoyPositionAuction is IConvoyPositionAuction {
     }
 
     Bid[] public epochBids;
-    mapping(address => uint8) internal _payoutRank;
+    mapping(address => uint8) internal _payoutRankPlusOne; // 0 = unranked (mapping default), else rank+1
     mapping(address => bool) internal _hasBidThisEpoch;
 
     uint8 public constant PROTECTED_SLOTS = 2;
+    uint8 public constant UNRANKED = type(uint8).max;
     uint256 public epoch;
 
     function bidForProtection(uint256 feeShareSacrificed) external {
@@ -49,7 +50,7 @@ contract ConvoyPositionAuction is IConvoyPositionAuction {
 
         for (uint256 i = 0; i < n; i++) {
             address lp = epochBids[i].lp;
-            _payoutRank[lp] = i < PROTECTED_SLOTS ? uint8(i) : type(uint8).max;
+            _payoutRankPlusOne[lp] = i < PROTECTED_SLOTS ? uint8(i + 1) : 0;
             _hasBidThisEpoch[lp] = false;
         }
 
@@ -59,6 +60,7 @@ contract ConvoyPositionAuction is IConvoyPositionAuction {
     }
 
     function payoutRank(address lp) external view returns (uint8) {
-        return _payoutRank[lp];
+        uint8 plusOne = _payoutRankPlusOne[lp];
+        return plusOne == 0 ? UNRANKED : plusOne - 1;
     }
 }
