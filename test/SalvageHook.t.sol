@@ -192,6 +192,7 @@ contract SalvageHookTest is Deployers {
         vm.prank(address(bidder));
         MockERC20(Currency.unwrap(currency1)).approve(address(auction), type(uint256).max);
 
+        vm.warp(10 hours); // give ourselves room to move the oracle's updatedAt into the past
         oracle.setPrice(1.05e18);
         oracle.setStale(block.timestamp - 2 hours); // older than LossMeterLib.MAX_ORACLE_STALENESS
 
