@@ -6,6 +6,7 @@ import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
+import {BalanceDelta, BalanceDeltaLibrary} from "v4-core/types/BalanceDelta.sol";
 
 import {BaseHook} from "./hooks/BaseHook.sol";
 import {ManifestLib} from "./libraries/ManifestLib.sol";
@@ -74,6 +75,36 @@ contract SalvageHook is BaseHook {
             afterAddLiquidityReturnDelta: false,
             afterRemoveLiquidityReturnDelta: false
         });
+    }
+
+    function _afterAddLiquidity(
+        address sender,
+        PoolKey calldata key,
+        IPoolManager.ModifyLiquidityParams calldata params,
+        BalanceDelta, /* delta */
+        BalanceDelta, /* feesAccrued */
+        bytes calldata
+    ) internal override returns (bytes4, BalanceDelta) {
+        _requireThisPool(key);
+        manifest.recordPosition(sender, params.tickLower, params.tickUpper, params.liquidityDelta);
+        return (BaseHook.afterAddLiquidity.selector, BalanceDeltaLibrary.ZERO_DELTA);
+    }
+
+    function _afterRemoveLiquidity(
+        address sender,
+        PoolKey calldata key,
+        IPoolManager.ModifyLiquidityParams calldata params,
+        BalanceDelta, /* delta */
+        BalanceDelta, /* feesAccrued */
+        bytes calldata
+    ) internal override returns (bytes4, BalanceDelta) {
+        _requireThisPool(key);
+        // force settlement of any pending claim BEFORE the position size changes, or a later claim
+        // calculation could use a liquidity figure that no longer matches what was actually exposed
+        // during the loss event
+        fund.claim(poolId, sender);
+        manifest.recordPosition(sender, params.tickLower, params.tickUpper, params.liquidityDelta);
+        return (BaseHook.afterRemoveLiquidity.selector, BalanceDeltaLibrary.ZERO_DELTA);
     }
 
     function _requireThisPool(PoolKey calldata key) private view {
