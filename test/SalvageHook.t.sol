@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Deployers} from "v4-core-test/utils/Deployers.sol";
 import {HookMiner} from "v4-periphery-test/shared/HookMiner.sol";
+import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
@@ -20,6 +21,7 @@ import {IVolatilityFeed} from "../src/interfaces/IVolatilityFeed.sol";
 
 import {MockPriceOracle} from "./mocks/MockPriceOracle.sol";
 import {MockVolatilityFeed} from "./mocks/MockVolatilityFeed.sol";
+import {Bidder} from "./helpers/Bidder.sol";
 
 /// @notice End-to-end integration test: a real PoolManager, a real mined SalvageHook address, and
 /// the full satellite deployment sequence. Uses Uniswap's own `Deployers` test harness (a real
@@ -118,5 +120,66 @@ contract SalvageHookTest is Deployers {
         uint256 mid = auction.windowLength(poolId);
         assertGt(mid, auction.MIN_WINDOW_BLOCKS());
         assertLt(mid, auction.MAX_WINDOW_BLOCKS());
+    }
+
+    /// @notice The full salvage-auction lane, matching architecture doc section 13's walkthrough:
+    /// bid -> winner's own swap -> beforeSwap gate + bid collection + fund deposit -> swap executes
+    /// -> afterSwap measures the oracle gap -> loss accrues to the exposed LP -> LP claims and is
+    /// paid from the very bid that was just collected.
+    function test_salvageAuctionLane_fullPipeline() public {
+        Bidder bidder = new Bidder(manager);
+
+        // Fund the bidder: quote token to pay the auction bid, plus both currencies to settle the
+        // swap itself (it's paying currency1 in, receiving currency0 out — see the oracle gap
+        // direction chosen below).
+        MockERC20(Currency.unwrap(currency1)).mint(address(bidder), 100 ether);
+        vm.prank(address(bidder));
+        MockERC20(Currency.unwrap(currency1)).approve(address(auction), type(uint256).max);
+
+        // Oracle says currency0 is worth 5% more (in currency1 terms) than the pool's ~1:1 price.
+        // Buying currency0 from the pool at ~1:1 while it's "really" worth 1.05 is exactly the
+        // LVR mechanism from the whitepaper's own worked example (section II): the trader captures
+        // the gap, which the loss meter must attribute to the exposed LP.
+        oracle.setPrice(1.05e18);
+
+        uint256 bidAmount = 1 ether;
+        auction.submitBid(poolId, bidAmount);
+
+        (address winner, uint256 amount) = auction.currentBid(poolId);
+        assertEq(winner, address(bidder));
+        assertEq(amount, bidAmount);
+
+        uint256 fundBalanceBefore = fund.balance(poolId);
+
+        // Small trade, well inside the LP's [-120, 120] tick range: pay currency1, receive
+        // currency0 (zeroForOne = false), exact input.
+        IPoolManager.SwapParams memory params =
+            IPoolManager.SwapParams({zeroForOne: false, amountSpecified: -1e15, sqrtPriceLimitX96: MAX_PRICE_LIMIT});
+        vm.prank(address(bidder));
+        bidder.doSwap(key, params);
+
+        // "No cure, no pay" collection: the bid is gone from the auction and landed in the fund.
+        (, uint256 remainingBid) = auction.currentBid(poolId);
+        assertEq(remainingBid, 0, "bid should be collected");
+        assertEq(fund.balance(poolId), fundBalanceBefore + bidAmount, "fund should hold the collected bid");
+
+        // The exposed LP now has a real, nonzero claim.
+        uint256 claimable = hook.claimableFor(lp);
+        assertGt(claimable, 0, "swap against a mispriced oracle must accrue a measurable loss to the LP");
+
+        // The LP claims and is actually paid real tokens out of the fund the bid just filled.
+        uint256 lpBalanceBefore = MockERC20(Currency.unwrap(currency1)).balanceOf(lp);
+        uint256 paid = fund.claim(poolId, lp);
+
+        assertGt(paid, 0, "claim should pay out something");
+        assertEq(paid, claimable > bidAmount ? bidAmount : claimable, "paid = min(owed, available)");
+        assertEq(
+            MockERC20(Currency.unwrap(currency1)).balanceOf(lp),
+            lpBalanceBefore + paid,
+            "LP must actually receive tokens"
+        );
+        assertEq(
+            hook.claimableFor(lp), claimable - paid, "checkpoint must reduce outstanding claim by exactly what was paid"
+        );
     }
 }
