@@ -15,18 +15,27 @@ import {ISalvageHook} from "./interfaces/ISalvageHook.sol";
 ///
 /// @dev The architecture doc's pseudocode declares a single immutable `hook` per fund while also
 /// keying every balance by `PoolId` — workable only if `hook` is generalized to a per-pool
-/// registry, which is what this takes. Registration is owner-gated.
+/// registry, which is what this takes. Registration is owner-gated: access control is explicitly
+/// out of scope for the architecture doc (section 15), but *some* minimal gate is required for the
+/// per-pool hook binding to be safe, so a simple deployer-owner fills that gap pragmatically.
 ///
 /// @dev Both `depositAuctionProceeds` and `depositFeeSlice` pull real ERC20 balance via
 /// `transferFrom` — the architecture doc's pseudocode only bumps an internal counter, but a fund
 /// that can pay out claims it never actually received would be exactly the Bancor failure mode
 /// this design is explicitly built to avoid.
+///
+/// @dev `depositAuctionProceeds` always sources tokens from `msg.sender` (which must already hold
+/// and have approved them) rather than from a fixed, single registered auction address. This is
+/// what lets more than one kind of caller fund a pool's auction stream — SalvageAuction.collectBid
+/// for the ordinary single-pool lane, and FleetSettlement.submitBundledBid for the bundled
+/// cross-pool lane — without the fund needing to know about FleetSettlement specifically. Callers
+/// are allowlisted per pool via `authorizedDepositors`.
 contract GeneralAverageFund is IGeneralAverageFund {
     mapping(PoolId => uint256) public auctionStreamBalance;
     mapping(PoolId => uint256) public feeStreamBalance;
     mapping(PoolId => address) public hookForPool;
-    mapping(PoolId => address) public auctionForPool;
     mapping(PoolId => IERC20) public quoteTokenForPool;
+    mapping(PoolId => mapping(address => bool)) public authorizedDepositors;
 
     address public immutable owner;
 
@@ -43,26 +52,34 @@ contract GeneralAverageFund is IGeneralAverageFund {
         owner = _owner;
     }
 
-    function registerPool(PoolId poolId, address hook_, address auction_, IERC20 quoteToken_) external onlyOwner {
+    /// @notice One-time binding of a pool's hook and quote token. Callable only by the
+    /// deployer-owner, once per pool.
+    function registerPool(PoolId poolId, address hook_, IERC20 quoteToken_) external onlyOwner {
         if (hookForPool[poolId] != address(0)) revert PoolAlreadyRegistered();
         hookForPool[poolId] = hook_;
-        auctionForPool[poolId] = auction_;
         quoteTokenForPool[poolId] = quoteToken_;
     }
 
-    /// @notice Pulls `amount` of the pool's quote token from the salvage auction contract, which
-    /// must have already approved this fund (see SalvageAuction.collectBid).
-    function depositAuctionProceeds(PoolId poolId, uint256 amount) external {
-        address hook_ = hookForPool[poolId];
-        address auction_ = auctionForPool[poolId];
-        if (hook_ == address(0)) revert PoolNotRegistered();
-        if (msg.sender != hook_ && msg.sender != auction_) revert Unauthorized();
+    /// @notice Authorize (or revoke) `depositor` as a source of auction proceeds for `poolId` —
+    /// e.g. that pool's SalvageAuction, or a shared FleetSettlement contract.
+    function setAuthorizedDepositor(PoolId poolId, address depositor, bool allowed) external onlyOwner {
+        authorizedDepositors[poolId][depositor] = allowed;
+    }
 
-        quoteTokenForPool[poolId].transferFrom(auction_, address(this), amount);
+    /// @notice Pulls `amount` of the pool's quote token from `msg.sender`, which must be an
+    /// authorized depositor for `poolId` and must already hold and have approved the tokens (see
+    /// SalvageAuction.collectBid and FleetSettlement.submitBundledBid).
+    function depositAuctionProceeds(PoolId poolId, uint256 amount) external {
+        if (hookForPool[poolId] == address(0)) revert PoolNotRegistered();
+        if (!authorizedDepositors[poolId][msg.sender]) revert Unauthorized();
+
+        quoteTokenForPool[poolId].transferFrom(msg.sender, address(this), amount);
         auctionStreamBalance[poolId] += amount;
         emit AuctionProceedsDeposited(poolId, amount);
     }
 
+    /// @notice Pulls `amount` of the pool's quote token from the caller (the pool's governance-set
+    /// fee-routing address) into the fee stream.
     function depositFeeSlice(PoolId poolId, uint256 amount) external {
         IERC20 token = quoteTokenForPool[poolId];
         if (address(token) == address(0)) revert PoolNotRegistered();
@@ -80,13 +97,15 @@ contract GeneralAverageFund is IGeneralAverageFund {
         if (owed == 0) return 0;
 
         uint256 available = auctionStreamBalance[poolId] + feeStreamBalance[poolId];
-        paid = owed > available ? available : owed;
+        paid = owed > available ? available : owed; // honest partial settlement on shortfall
         if (paid == 0) return 0;
 
+        // drain auction stream first, then fee stream
         uint256 fromAuction = paid > auctionStreamBalance[poolId] ? auctionStreamBalance[poolId] : paid;
         auctionStreamBalance[poolId] -= fromAuction;
         feeStreamBalance[poolId] -= (paid - fromAuction);
 
+        // checkpoint the LP in the hook's loss meter so the same amount can't be re-claimed
         ISalvageHook(hook_).settleClaim(lp, paid);
 
         quoteTokenForPool[poolId].transfer(lp, paid);
