@@ -9,6 +9,7 @@ import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {BalanceDelta, BalanceDeltaLibrary} from "v4-core/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/types/BeforeSwapDelta.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
 
 import {BaseHook} from "./hooks/BaseHook.sol";
 import {ManifestLib} from "./libraries/ManifestLib.sol";
@@ -142,6 +143,28 @@ contract SalvageHook is BaseHook {
         salvageAuction.collectBid(poolId, winner);
 
         return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+    }
+
+    function _afterSwap(
+        address, /* sender */
+        PoolKey calldata key,
+        IPoolManager.SwapParams calldata,
+        BalanceDelta delta,
+        bytes calldata
+    ) internal override returns (bytes4, int128) {
+        _requireThisPool(key);
+
+        (uint256 realizedLoss, uint160 sqrtPriceBefore) = lossMeter.measureLoss(delta, oracle, oracleDecimals);
+
+        if (realizedLoss > 0) {
+            (uint160 sqrtPriceAfter,,,) = poolManager.getSlot0(poolId);
+            ManifestLib.Exposure[] memory hit = manifest.getExposedRanges(
+                TickMath.getTickAtSqrtPrice(sqrtPriceBefore), TickMath.getTickAtSqrtPrice(sqrtPriceAfter)
+            );
+            lossMeter.accrue(hit, realizedLoss);
+        }
+
+        return (BaseHook.afterSwap.selector, 0);
     }
 
     function _requireThisPool(PoolKey calldata key) private view {
