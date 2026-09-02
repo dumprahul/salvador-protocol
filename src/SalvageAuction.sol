@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {PoolId} from "v4-core/types/PoolId.sol";
 import {ISalvageAuction} from "./interfaces/ISalvageAuction.sol";
 import {IVolatilityFeed} from "./interfaces/IVolatilityFeed.sol";
@@ -16,6 +17,8 @@ import {IGeneralAverageFund} from "./interfaces/IGeneralAverageFund.sol";
 /// @dev Same per-pool registry pattern as GeneralAverageFund, for the same reason: the doc's
 /// pseudocode declares a single immutable `hook` while keying storage by `PoolId`.
 contract SalvageAuction is ISalvageAuction {
+    using SafeERC20 for IERC20;
+
     struct Bid {
         address bidder;
         uint256 amount;
@@ -106,8 +109,8 @@ contract SalvageAuction is ISalvageAuction {
 
         IERC20 token = quoteTokenForPool[poolId];
         uint256 amount = b.amount;
-        token.transferFrom(winner, address(this), amount);
-        token.approve(address(fund), amount);
+        token.safeTransferFrom(winner, address(this), amount);
+        token.forceApprove(address(fund), amount);
         fund.depositAuctionProceeds(poolId, amount);
 
         emit BidCollected(poolId, winner, amount);
