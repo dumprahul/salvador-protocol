@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ILettersOfMarque} from "./interfaces/ILettersOfMarque.sol";
 
 /// @title LettersOfMarque
@@ -15,6 +16,8 @@ import {ILettersOfMarque} from "./interfaces/ILettersOfMarque.sol";
 /// since JIT sniping is the same behavior regardless of which pool it targets. Hook registration is
 /// owner-gated for the same minimal-access-control reason as the other satellites.
 contract LettersOfMarque is ILettersOfMarque {
+    using SafeERC20 for IERC20;
+
     mapping(address => uint256) public bondedAmount;
     mapping(address => bool) public isHook;
 
@@ -46,7 +49,7 @@ contract LettersOfMarque is ILettersOfMarque {
     }
 
     function postBond(uint256 amount) external {
-        bondToken.transferFrom(msg.sender, address(this), amount);
+        bondToken.safeTransferFrom(msg.sender, address(this), amount);
         bondedAmount[msg.sender] += amount;
         emit BondPosted(msg.sender, amount);
     }
@@ -57,7 +60,7 @@ contract LettersOfMarque is ILettersOfMarque {
     function withdrawBond(uint256 amount) external {
         if (amount > bondedAmount[msg.sender]) revert InsufficientBondedBalance();
         bondedAmount[msg.sender] -= amount;
-        bondToken.transfer(msg.sender, amount);
+        bondToken.safeTransfer(msg.sender, amount);
         emit BondWithdrawn(msg.sender, amount);
     }
 
