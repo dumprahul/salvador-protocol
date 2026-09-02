@@ -18,6 +18,7 @@ import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 import {ISalvageAuction} from "./interfaces/ISalvageAuction.sol";
 import {IConvoyBatch} from "./interfaces/IConvoyBatch.sol";
 import {IGeneralAverageFund} from "./interfaces/IGeneralAverageFund.sol";
+import {ISalvageHook} from "./interfaces/ISalvageHook.sol";
 
 /// @title SalvageHook
 /// @notice The single v4 hook contract for one pool. Owns the Manifest and Loss Meter as internal
@@ -25,7 +26,7 @@ import {IGeneralAverageFund} from "./interfaces/IGeneralAverageFund.sol";
 /// deployed contracts) and routes the two trading lanes — salvage-auction and convoy-batch — into
 /// SalvageAuction / ConvoyBatch / GeneralAverageFund, the independently deployed satellite
 /// contracts that legitimately need their own security boundary.
-contract SalvageHook is BaseHook {
+contract SalvageHook is BaseHook, ISalvageHook {
     using ManifestLib for ManifestLib.Storage;
     using LossMeterLib for LossMeterLib.Storage;
     using PoolIdLibrary for PoolKey;
@@ -46,6 +47,7 @@ contract SalvageHook is BaseHook {
 
     error NotThisBlocksWinner();
     error BidNotCollected();
+    error NotFund();
     error WrongPool();
 
     constructor(
@@ -165,6 +167,42 @@ contract SalvageHook is BaseHook {
         }
 
         return (BaseHook.afterSwap.selector, 0);
+    }
+
+    // ---------------------------------------------------------------------
+    // Claim settlement surface — called only by the general average fund
+    // ---------------------------------------------------------------------
+
+    /// @notice Total outstanding claimable loss-share across every range `lp` has ever opened in
+    /// this pool.
+    function claimableFor(address lp) external view returns (uint256 totalOwed) {
+        bytes32[] memory keys = manifest.positionsOf(lp);
+        for (uint256 i = 0; i < keys.length; i++) {
+            totalOwed += lossMeter.getClaimable(keys[i]);
+        }
+    }
+
+    /// @notice Settle `paid` against `lp`'s outstanding claim, oldest-range-first, decrementing
+    /// each range's checkpoint until `paid` is exhausted. Callable only by the general average
+    /// fund, which has already computed `paid` as min(owed, available).
+    function settleClaim(address lp, uint256 paid) external {
+        if (msg.sender != address(fund)) revert NotFund();
+
+        bytes32[] memory keys = manifest.positionsOf(lp);
+        uint256 remaining = paid;
+        for (uint256 i = 0; i < keys.length && remaining > 0; i++) {
+            uint256 owed = lossMeter.getClaimable(keys[i]);
+            if (owed == 0) continue;
+            uint256 slice = owed < remaining ? owed : remaining;
+            lossMeter.checkpoint(keys[i], slice);
+            remaining -= slice;
+        }
+    }
+
+    /// @inheritdoc ISalvageHook
+    function lastMeasuredGap(PoolId _poolId) external view returns (uint256) {
+        if (PoolId.unwrap(_poolId) != PoolId.unwrap(poolId)) revert WrongPool();
+        return lossMeter.lastMeasuredGap;
     }
 
     function _requireThisPool(PoolKey calldata key) private view {
