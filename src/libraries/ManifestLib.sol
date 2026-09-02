@@ -22,6 +22,7 @@ library ManifestLib {
         mapping(bytes32 => Position) positions; // key: keccak(lp, tickLower, tickUpper)
         mapping(bytes32 => uint256) positionIndex; // key => index in positionKeys (1-based; 0 = absent)
         bytes32[] positionKeys; // enumerable set of live (liquidity > 0) position keys
+        mapping(address => bytes32[]) positionKeysByLp; // lp => every key it has ever touched (may include zero-liquidity ranges it re-enters later)
     }
 
     struct Exposure {
@@ -52,6 +53,7 @@ library ManifestLib {
             p.lp = lp;
             p.tickLower = tickLower;
             p.tickUpper = tickUpper;
+            self.positionKeysByLp[lp].push(key);
         }
 
         if (liquidityDelta >= 0) {
@@ -131,5 +133,11 @@ library ManifestLib {
         returns (Position memory)
     {
         return self.positions[positionKey(lp, tickLower, tickUpper)];
+    }
+
+    /// @notice Every position key `lp` has ever opened (including ranges currently at zero
+    /// liquidity, since a claimable loss balance can still be outstanding against them).
+    function positionsOf(Storage storage self, address lp) internal view returns (bytes32[] memory) {
+        return self.positionKeysByLp[lp];
     }
 }
