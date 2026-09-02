@@ -95,4 +95,28 @@ contract SalvageHookTest is Deployers {
     function currency1AsIERC20() internal view returns (IERC20) {
         return IERC20(Currency.unwrap(currency1));
     }
+
+    /// @notice A plain swap through a stock router is never allowed through this pool: the caller
+    /// is neither ConvoyBatch nor the current auction winner.
+    function test_ungatedSwapReverts() public {
+        // v4 wraps hook reverts in CustomRevert.WrappedError (ERC-7751), so we can't match the bare
+        // selector here — the underlying revert (visible with -vvvv) is NotThisBlocksWinner.
+        vm.expectRevert();
+        swap(key, false, -1e15, ZERO_BYTES);
+    }
+
+    /// @notice SalvageAuction.windowLength widens under measured volatility and stays tight when
+    /// calm — the storm-scaled window from architecture doc section VI.
+    function test_stormScaledWindow() public {
+        volFeed.setVolatility(poolId, 10); // calm
+        assertEq(auction.windowLength(poolId), auction.MIN_WINDOW_BLOCKS());
+
+        volFeed.setVolatility(poolId, 10_000); // storm
+        assertEq(auction.windowLength(poolId), auction.MAX_WINDOW_BLOCKS());
+
+        volFeed.setVolatility(poolId, 275); // midpoint between the two thresholds
+        uint256 mid = auction.windowLength(poolId);
+        assertGt(mid, auction.MIN_WINDOW_BLOCKS());
+        assertLt(mid, auction.MAX_WINDOW_BLOCKS());
+    }
 }
