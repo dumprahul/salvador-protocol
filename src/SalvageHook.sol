@@ -63,7 +63,16 @@ contract SalvageHook is BaseHook, ISalvageHook {
         fund = _fund;
         oracle = _oracle;
         oracleDecimals = _oracle.decimals();
-        poolId = _key.toId();
+
+        // `_key.hooks` is whatever placeholder the caller used to mine this contract's own
+        // address (chicken-and-egg: the real hook address isn't known until after mining, so it
+        // can't have been baked into the constructor args used to mine it). `address(this)` inside
+        // a constructor is always the contract's own address — which, via CREATE2, is exactly the
+        // mined address — so overwriting `.hooks` here is what makes `poolId` self-consistent
+        // regardless of what placeholder was passed in.
+        PoolKey memory actualKey = _key;
+        actualKey.hooks = IHooks(address(this));
+        poolId = actualKey.toId();
     }
 
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
