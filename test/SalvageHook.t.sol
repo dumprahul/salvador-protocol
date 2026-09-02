@@ -182,4 +182,26 @@ contract SalvageHookTest is Deployers {
             hook.claimableFor(lp), claimable - paid, "checkpoint must reduce outstanding claim by exactly what was paid"
         );
     }
+
+    /// @notice A stale oracle zeroes the loss measurement rather than reverting the trade — the
+    /// architecture doc's documented default (section "measureLoss" / build roadmap open item).
+    function test_staleOracle_zeroesLossWithoutRevertingTrade() public {
+        Bidder bidder = new Bidder(manager);
+        MockERC20(Currency.unwrap(currency1)).mint(address(bidder), 100 ether);
+        vm.prank(address(bidder));
+        MockERC20(Currency.unwrap(currency1)).approve(address(auction), type(uint256).max);
+
+        oracle.setPrice(1.05e18);
+        oracle.setStale(block.timestamp - 2 hours); // older than LossMeterLib.MAX_ORACLE_STALENESS
+
+        vm.prank(address(bidder));
+        auction.submitBid(poolId, 1 ether);
+
+        IPoolManager.SwapParams memory params =
+            IPoolManager.SwapParams({zeroForOne: false, amountSpecified: -1e15, sqrtPriceLimitX96: MAX_PRICE_LIMIT});
+        vm.prank(address(bidder));
+        bidder.doSwap(key, params); // must not revert
+
+        assertEq(hook.claimableFor(lp), 0, "stale oracle must not accrue any loss");
+    }
 }
