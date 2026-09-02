@@ -61,4 +61,28 @@ contract LossMeterLibTest is Test {
         // exact split sums to the total distributed (no dust lost, per the last-index rounding fixup)
         assertEq(claimableX + claimableY, 9.2e18 + 2.5e18);
     }
+
+    function test_checkpointReducesClaimable() public {
+        ManifestLib.Exposure[] memory hit = new ManifestLib.Exposure[](1);
+        hit[0] = ManifestLib.Exposure({key: KEY_X, lp: address(0), tickLower: 0, tickUpper: 0, liquidity: 100});
+        harness.accrue(hit, 100e18);
+
+        assertEq(harness.getClaimable(KEY_X), 100e18);
+        harness.checkpoint(KEY_X, 60e18);
+        assertEq(harness.getClaimable(KEY_X), 40e18);
+    }
+
+    function test_noExposedLiquidity_reverts() public {
+        ManifestLib.Exposure[] memory hit = new ManifestLib.Exposure[](1);
+        hit[0] = ManifestLib.Exposure({key: KEY_X, lp: address(0), tickLower: 0, tickUpper: 0, liquidity: 0});
+        vm.expectRevert(bytes("no exposed liquidity"));
+        harness.accrue(hit, 100e18);
+    }
+
+    function test_zeroLossIsNoop() public {
+        ManifestLib.Exposure[] memory hit = new ManifestLib.Exposure[](1);
+        hit[0] = ManifestLib.Exposure({key: KEY_X, lp: address(0), tickLower: 0, tickUpper: 0, liquidity: 100});
+        harness.accrue(hit, 0);
+        assertEq(harness.getClaimable(KEY_X), 0);
+    }
 }
