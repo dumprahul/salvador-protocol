@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {FullMath} from "v4-core/libraries/FullMath.sol";
 import {PoolId} from "v4-core/types/PoolId.sol";
 import {IFleetSettlement} from "./interfaces/IFleetSettlement.sol";
@@ -18,6 +19,8 @@ import {IGeneralAverageFund} from "./interfaces/IGeneralAverageFund.sol";
 /// gap (`ISalvageHook.lastMeasuredGap`) — never a caller-supplied split, so no pool's hook has to
 /// trust the bidder's claim about how to divide it.
 contract FleetSettlement is IFleetSettlement {
+    using SafeERC20 for IERC20;
+
     mapping(PoolId => address) public hookFor;
     mapping(PoolId => address) public fundFor;
     address public immutable owner;
@@ -58,7 +61,7 @@ contract FleetSettlement is IFleetSettlement {
         }
         if (sumGaps == 0) revert NoMeasuredGap();
 
-        bidToken.transferFrom(msg.sender, address(this), totalBid);
+        bidToken.safeTransferFrom(msg.sender, address(this), totalBid);
 
         uint256 distributed;
         for (uint256 i = 0; i < n; i++) {
@@ -71,7 +74,7 @@ contract FleetSettlement is IFleetSettlement {
             }
             if (share > 0) {
                 address fund_ = fundFor[pools[i]];
-                bidToken.approve(fund_, share);
+                bidToken.forceApprove(fund_, share);
                 IGeneralAverageFund(fund_).depositAuctionProceeds(pools[i], share);
             }
         }
