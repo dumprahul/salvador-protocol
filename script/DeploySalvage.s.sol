@@ -58,11 +58,7 @@ contract DeploySalvageScript is Script {
         uint160 sqrtPriceX96 = uint160(vm.envUint("INITIAL_SQRT_PRICE_X96"));
 
         PoolKey memory pendingKey = PoolKey({
-            currency0: currency0,
-            currency1: currency1,
-            fee: fee,
-            tickSpacing: tickSpacing,
-            hooks: IHooks(address(0))
+            currency0: currency0, currency1: currency1, fee: fee, tickSpacing: tickSpacing, hooks: IHooks(address(0))
         });
 
         uint160 flags = uint160(
@@ -74,18 +70,12 @@ contract DeploySalvageScript is Script {
         (address hookAddress, bytes32 salt) =
             HookMiner.find(msg.sender, flags, type(SalvageHook).creationCode, constructorArgs);
 
-        SalvageHook hook = new SalvageHook{salt: salt}(
-            poolManager, pendingKey, auction, convoyBatch, fund, oracle
-        );
+        SalvageHook hook = new SalvageHook{salt: salt}(poolManager, pendingKey, auction, convoyBatch, fund, oracle);
         require(address(hook) == hookAddress, "hook address mismatch");
         console.log("SalvageHook:", address(hook));
 
         PoolKey memory key = PoolKey({
-            currency0: currency0,
-            currency1: currency1,
-            fee: fee,
-            tickSpacing: tickSpacing,
-            hooks: IHooks(hookAddress)
+            currency0: currency0, currency1: currency1, fee: fee, tickSpacing: tickSpacing, hooks: IHooks(hookAddress)
         });
 
         fund.registerPool(hook.poolId(), address(hook), quoteToken);
