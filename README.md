@@ -34,3 +34,39 @@ corrections across correlated pools into one bid).
 
 See `SALVAGE_CONTRACT_ARCHITECTURE.md` and the whitepaper for the full design rationale, worked
 numeric examples, and honestly-stated open risks.
+
+## Build
+
+```shell
+forge build
+```
+
+## Test
+
+```shell
+forge test
+```
+
+The suite includes pure-library unit tests (the LP1/LP2/LP3 partial-overlap fixture for
+`ManifestLib`, the seven-block worked payout example for `LossMeterLib`) and a full end-to-end
+integration test (`test/SalvageHook.t.sol`) against a real, freshly deployed `PoolManager` — bid,
+gated swap, oracle-gap loss measurement, accrual, and a real claim payout, wired together exactly
+as the architecture doc's salvage-auction-lane walkthrough describes.
+
+## Deploy
+
+```shell
+forge script script/DeploySalvage.s.sol --rpc-url <your_rpc_url> --private-key <your_private_key> --broadcast
+```
+
+## Satellite wiring order
+
+Each pool needs its own mined `SalvageHook` address (permission bits must match the deployed
+address's low bits — see `HookMiner`) and its satellites registered in this order:
+
+1. Deploy `GeneralAverageFund`, `SalvageAuction` (needs a volatility feed and the fund), `ConvoyBatch`
+2. Mine and deploy `SalvageHook` for the target pool key
+3. `fund.registerPool(poolId, hook, quoteToken)`
+4. `fund.setAuthorizedDepositor(poolId, auction, true)`
+5. `auction.registerPool(poolId, hook, quoteToken)`
+6. `PoolManager.initialize(key, sqrtPriceX96)`
