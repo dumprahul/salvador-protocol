@@ -63,7 +63,8 @@ contract ConvoyBatch is IConvoyBatch {
         uint160 sqrtPriceNextX96 =
             SqrtPriceMath.getNextSqrtPriceFromInput(sqrtPriceX96, liquidity, amountIn, zeroForOne);
 
-        uint256 diff = sqrtPriceX96 > sqrtPriceNextX96 ? sqrtPriceX96 - sqrtPriceNextX96 : sqrtPriceNextX96 - sqrtPriceX96;
+        uint256 diff =
+            sqrtPriceX96 > sqrtPriceNextX96 ? sqrtPriceX96 - sqrtPriceNextX96 : sqrtPriceNextX96 - sqrtPriceX96;
         // sqrtPrice moves by ~half the price's relative move for small moves; scale to bps of price
         impactBps = (uint256(diff) * 2 * 10_000) / uint256(sqrtPriceX96);
     }
