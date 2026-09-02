@@ -96,4 +96,52 @@ contract ManifestLibTest is Test {
         ManifestLib.Exposure[] memory hits = harness.getExposedRanges(0, 300);
         assertEq(hits.length, 0);
     }
+
+    /// @notice A position closed back to zero liquidity is removed from the enumerable set and no
+    /// longer reported as exposed, even though its historical key still exists.
+    function test_closedPositionIsNotExposed() public {
+        harness.recordPosition(LP1, 0, 100, 1_000e18);
+        harness.recordPosition(LP1, 0, 100, -1_000e18); // fully withdrawn
+
+        ManifestLib.Exposure[] memory hits = harness.getExposedRanges(0, 300);
+        assertEq(hits.length, 0);
+
+        // but the position is still tracked for historical claim settlement
+        bytes32[] memory keys = harness.positionsOf(LP1);
+        assertEq(keys.length, 1);
+    }
+
+    /// @notice Sequential mint/burn deltas net correctly, mirroring the doc's signed-delta
+    /// accounting (mint = positive, burn = negative).
+    function test_liquidityDeltaAccounting() public {
+        harness.recordPosition(LP1, 0, 100, 500e18);
+        harness.recordPosition(LP1, 0, 100, 300e18);
+        assertEq(harness.liquidityOf(LP1, 0, 100), 800e18);
+
+        harness.recordPosition(LP1, 0, 100, -200e18);
+        assertEq(harness.liquidityOf(LP1, 0, 100), 600e18);
+    }
+
+    function test_revertsOnOverdraw() public {
+        harness.recordPosition(LP1, 0, 100, 100e18);
+        vm.expectRevert(ManifestLib.LiquidityUnderflow.selector);
+        harness.recordPosition(LP1, 0, 100, -200e18);
+    }
+
+    /// @notice Enumerable-set bookkeeping survives a middle element being removed (the swap-remove
+    /// in _removeKey must not corrupt neighboring entries).
+    function test_removalFromMiddleOfSet() public {
+        harness.recordPosition(LP1, 0, 100, 1e18);
+        harness.recordPosition(LP2, 0, 100, 1e18);
+        harness.recordPosition(LP3, 0, 100, 1e18);
+
+        // close LP2 (the middle-inserted position)
+        harness.recordPosition(LP2, 0, 100, -1e18);
+
+        ManifestLib.Exposure[] memory hits = harness.getExposedRanges(0, 100);
+        assertEq(hits.length, 2);
+        for (uint256 i = 0; i < hits.length; i++) {
+            assertTrue(hits[i].lp == LP1 || hits[i].lp == LP3);
+        }
+    }
 }
