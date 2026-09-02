@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {PoolId} from "v4-core/types/PoolId.sol";
 import {IGeneralAverageFund} from "./interfaces/IGeneralAverageFund.sol";
 import {ISalvageHook} from "./interfaces/ISalvageHook.sol";
@@ -31,6 +32,8 @@ import {ISalvageHook} from "./interfaces/ISalvageHook.sol";
 /// cross-pool lane — without the fund needing to know about FleetSettlement specifically. Callers
 /// are allowlisted per pool via `authorizedDepositors`.
 contract GeneralAverageFund is IGeneralAverageFund {
+    using SafeERC20 for IERC20;
+
     mapping(PoolId => uint256) public auctionStreamBalance;
     mapping(PoolId => uint256) public feeStreamBalance;
     mapping(PoolId => address) public hookForPool;
@@ -73,7 +76,7 @@ contract GeneralAverageFund is IGeneralAverageFund {
         if (hookForPool[poolId] == address(0)) revert PoolNotRegistered();
         if (!authorizedDepositors[poolId][msg.sender]) revert Unauthorized();
 
-        quoteTokenForPool[poolId].transferFrom(msg.sender, address(this), amount);
+        quoteTokenForPool[poolId].safeTransferFrom(msg.sender, address(this), amount);
         auctionStreamBalance[poolId] += amount;
         emit AuctionProceedsDeposited(poolId, amount);
     }
@@ -84,7 +87,7 @@ contract GeneralAverageFund is IGeneralAverageFund {
         IERC20 token = quoteTokenForPool[poolId];
         if (address(token) == address(0)) revert PoolNotRegistered();
 
-        token.transferFrom(msg.sender, address(this), amount);
+        token.safeTransferFrom(msg.sender, address(this), amount);
         feeStreamBalance[poolId] += amount;
         emit FeeSliceDeposited(poolId, amount);
     }
@@ -108,7 +111,7 @@ contract GeneralAverageFund is IGeneralAverageFund {
         // checkpoint the LP in the hook's loss meter so the same amount can't be re-claimed
         ISalvageHook(hook_).settleClaim(lp, paid);
 
-        quoteTokenForPool[poolId].transfer(lp, paid);
+        quoteTokenForPool[poolId].safeTransfer(lp, paid);
 
         emit Claimed(poolId, lp, owed, paid);
     }
