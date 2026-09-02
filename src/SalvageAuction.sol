@@ -95,6 +95,9 @@ contract SalvageAuction is ISalvageAuction {
         return (b.bidder, b.collected ? 0 : b.amount);
     }
 
+    /// @notice Collects the winner's bid and deposits it into the pool's general average fund in
+    /// the same call — this contract must be registered as an authorized depositor for `poolId`
+    /// on `fund` (see GeneralAverageFund.setAuthorizedDepositor).
     function collectBid(PoolId poolId, address winner) external {
         if (msg.sender != hookForPool[poolId]) revert NotHook();
         Bid storage b = winningBid[poolId];
@@ -102,9 +105,11 @@ contract SalvageAuction is ISalvageAuction {
         b.collected = true;
 
         IERC20 token = quoteTokenForPool[poolId];
-        token.transferFrom(winner, address(this), b.amount);
-        token.approve(address(fund), b.amount);
+        uint256 amount = b.amount;
+        token.transferFrom(winner, address(this), amount);
+        token.approve(address(fund), amount);
+        fund.depositAuctionProceeds(poolId, amount);
 
-        emit BidCollected(poolId, winner, b.amount);
+        emit BidCollected(poolId, winner, amount);
     }
 }
