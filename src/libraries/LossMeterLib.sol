@@ -20,6 +20,7 @@ library LossMeterLib {
         uint160 sqrtPriceBeforeSwap; // snapshot taken in _beforeSwap, consumed in _afterSwap
         uint256 lastMeasuredGap; // realized loss (quote-token wei) from the most recent swap
         mapping(bytes32 => uint256) claimableLoss; // position key => accrued, unclaimed loss-share
+        mapping(bytes32 => uint256) lastClaimedAt; // position key => block.number of last checkpoint, informational
     }
 
     /// @notice Oracle reading older than this is treated as unusable for this swap (loss = 0),
@@ -105,5 +106,17 @@ library LossMeterLib {
             }
             self.claimableLoss[hit[i].key] += share;
         }
+    }
+
+    /// @notice Currently accrued, unclaimed loss-share for a position.
+    function getClaimable(Storage storage self, bytes32 posKey) internal view returns (uint256) {
+        return self.claimableLoss[posKey];
+    }
+
+    /// @notice Reduce a position's claimable balance by `paid` (a partial fund settlement leaves
+    /// the remainder outstanding for a future claim, per the fund's honest-shortfall behavior).
+    function checkpoint(Storage storage self, bytes32 posKey, uint256 paid) internal {
+        self.claimableLoss[posKey] -= paid;
+        self.lastClaimedAt[posKey] = block.number;
     }
 }
