@@ -68,6 +68,28 @@ contract ConvoyBatch is IConvoyBatch {
         impactBps = (uint256(diff) * 2 * 10_000) / uint256(sqrtPriceX96);
     }
 
+    /// @notice Settle the pending batch for `poolId` at one uniform clearing price. Callable only
+    /// by the authorized solver, which is expected to have computed `clearingPriceX96` off-chain
+    /// and to execute the resulting swaps immediately after this call via `PoolManager.swap()` —
+    /// each one with `sender == address(this)`, which `SalvageHook._beforeSwap` recognizes and
+    /// waves through without an auction-winner check.
+    function settleBatch(PoolId poolId, uint256 clearingPriceX96, bytes calldata solverProof) external {
+        if (msg.sender != authorizedSolver) revert UnauthorizedSolver();
+
+        bytes32 key = _batchKey(poolId, currentEpoch[poolId]);
+        uint256 filled = pendingBatch[key].length;
+
+        // NOTE (open item, per architecture doc section 15): a production settlement must verify
+        // solverProof against the pending batch (e.g. a Merkle commitment the solver published
+        // earlier, or a direct on-chain recompute) before trusting clearingPriceX96. The
+        // single-trusted-solver model (roadmap item 6) intentionally defers that verification;
+        // solverProof is accepted here as a forward-compatible parameter, unused until then.
+        solverProof;
+
+        currentEpoch[poolId] += 1; // advance epoch so the next submitToBatch starts a fresh batch
+        emit BatchSettled(poolId, clearingPriceX96, filled);
+    }
+
     function _batchKey(PoolId poolId, uint256 epoch) internal pure returns (bytes32) {
         return keccak256(abi.encode(poolId, epoch));
     }
