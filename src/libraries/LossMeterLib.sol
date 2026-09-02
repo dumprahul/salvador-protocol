@@ -3,7 +3,9 @@ pragma solidity ^0.8.24;
 
 import {BalanceDelta, BalanceDeltaLibrary} from "v4-core/types/BalanceDelta.sol";
 import {FullMath} from "v4-core/libraries/FullMath.sol";
+import {FixedPoint128} from "v4-core/libraries/FixedPoint128.sol";
 import {IPriceOracle} from "../interfaces/IPriceOracle.sol";
+import {ManifestLib} from "./ManifestLib.sol";
 
 /// @title LossMeterLib
 /// @notice Internal library (storage lives inside SalvageHook). Measures realized LVR per swap,
@@ -14,8 +16,10 @@ import {IPriceOracle} from "../interfaces/IPriceOracle.sol";
 /// per-pool scope.
 library LossMeterLib {
     struct Storage {
+        uint256 lossGrowthGlobalX128; // observability only — mirrors feeGrowthGlobal's shape
         uint160 sqrtPriceBeforeSwap; // snapshot taken in _beforeSwap, consumed in _afterSwap
         uint256 lastMeasuredGap; // realized loss (quote-token wei) from the most recent swap
+        mapping(bytes32 => uint256) claimableLoss; // position key => accrued, unclaimed loss-share
     }
 
     /// @notice Oracle reading older than this is treated as unusable for this swap (loss = 0),
@@ -64,5 +68,42 @@ library LossMeterLib {
         }
 
         self.lastMeasuredGap = realizedLoss;
+    }
+
+    /// @notice Distribute `totalLoss` across the positions `hit` reports as exposed, in proportion
+    /// to each position's liquidity share of the total exposed liquidity.
+    ///
+    /// @dev Deviation from the architecture doc's `lossGrowthInside` checkpoint pattern, made
+    /// deliberately per section 15's own warning: "a single flat lossGrowthGlobal bump is only
+    /// correct when every exposed LP covers the SAME sub-range... do not ship the flat version
+    /// believing it handles partial overlaps." A checkpoint-and-diff scheme that is correct under
+    /// partial overlaps needs the full per-tick `lossGrowthOutside` walk Uniswap itself uses for
+    /// fees — real, substantial additional machinery. Until that is built, `accrue` instead settles
+    /// loss directly against the exact exposed-position list `ManifestLib.getExposedRanges` already
+    /// computes. `lossGrowthGlobalX128` is retained purely as an observability accumulator; claims
+    /// never read it.
+    function accrue(Storage storage self, ManifestLib.Exposure[] memory hit, uint256 totalLoss) internal {
+        if (totalLoss == 0 || hit.length == 0) return;
+
+        uint256 totalLiquidity;
+        for (uint256 i = 0; i < hit.length; i++) {
+            totalLiquidity += hit[i].liquidity;
+        }
+        require(totalLiquidity > 0, "no exposed liquidity");
+
+        self.lossGrowthGlobalX128 += FullMath.mulDiv(totalLoss, FixedPoint128.Q128, totalLiquidity);
+
+        uint256 distributed;
+        for (uint256 i = 0; i < hit.length; i++) {
+            uint256 share;
+            if (i == hit.length - 1) {
+                // last position absorbs any rounding remainder so the sum exactly equals totalLoss
+                share = totalLoss - distributed;
+            } else {
+                share = FullMath.mulDiv(totalLoss, hit[i].liquidity, totalLiquidity);
+                distributed += share;
+            }
+            self.claimableLoss[hit[i].key] += share;
+        }
     }
 }
