@@ -58,6 +58,8 @@ contract FleetSettlement is IFleetSettlement {
         }
         if (sumGaps == 0) revert NoMeasuredGap();
 
+        bidToken.transferFrom(msg.sender, address(this), totalBid);
+
         uint256 distributed;
         for (uint256 i = 0; i < n; i++) {
             uint256 share;
