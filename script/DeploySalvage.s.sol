@@ -43,7 +43,7 @@ contract DeploySalvageScript is Script {
 
         fund = new GeneralAverageFund(msg.sender);
         auction = new SalvageAuction(volatilityFeed, fund, msg.sender);
-        convoyBatch = new ConvoyBatch(poolManager, vm.envAddress("AUTHORIZED_SOLVER"));
+        convoyBatch = new ConvoyBatch(poolManager, vm.envAddress("AUTHORIZED_SOLVER"), msg.sender);
 
         console.log("GeneralAverageFund:", address(fund));
         console.log("SalvageAuction:", address(auction));
@@ -81,6 +81,7 @@ contract DeploySalvageScript is Script {
         fund.registerPool(hook.poolId(), address(hook), quoteToken);
         fund.setAuthorizedDepositor(hook.poolId(), address(auction), true);
         auction.registerPool(hook.poolId(), address(hook), quoteToken);
+        convoyBatch.registerPool(hook.poolId(), key);
 
         poolManager.initialize(key, sqrtPriceX96);
 

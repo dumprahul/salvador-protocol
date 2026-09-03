@@ -69,4 +69,6 @@ address's low bits — see `HookMiner`) and its satellites registered in this or
 3. `fund.registerPool(poolId, hook, quoteToken)`
 4. `fund.setAuthorizedDepositor(poolId, auction, true)`
 5. `auction.registerPool(poolId, hook, quoteToken)`
-6. `PoolManager.initialize(key, sqrtPriceX96)`
+6. `convoyBatch.registerPool(poolId, key)` — binds the full `PoolKey` so `settleBatch` can call
+   `PoolManager.swap()` itself
+7. `PoolManager.initialize(key, sqrtPriceX96)`
