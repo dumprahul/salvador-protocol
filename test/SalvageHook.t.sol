@@ -51,7 +51,7 @@ contract SalvageHookTest is Deployers {
 
         fund = new GeneralAverageFund(address(this));
         auction = new SalvageAuction(IVolatilityFeed(address(volFeed)), fund, address(this));
-        convoyBatch = new ConvoyBatch(manager, address(this)); // trusted-single-solver stub; not exercised here
+        convoyBatch = new ConvoyBatch(manager, address(this), address(this));
 
         // Mine a hook address with exactly the four permission bits SalvageHook needs.
         uint160 flags = uint160(
@@ -82,6 +82,7 @@ contract SalvageHookTest is Deployers {
         fund.registerPool(poolId, address(hook), currency1AsIERC20());
         fund.setAuthorizedDepositor(poolId, address(auction), true);
         auction.registerPool(poolId, address(hook), currency1AsIERC20());
+        convoyBatch.registerPool(poolId, key);
 
         manager.initialize(key, SQRT_PRICE_1_1);
 
